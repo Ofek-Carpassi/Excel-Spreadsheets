@@ -25,6 +25,8 @@ The software will have the following features:
 
 Steps:
 1. Create a simple GUI, just a window with a big spreadsheet
+2. Add scrollbars to the spreadsheet
+3. Make the cells editable - functional
 
 Implementation:
 Files:

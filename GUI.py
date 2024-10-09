@@ -1,5 +1,57 @@
 import tkinter as tk
 
+class Cell:
+    def __init__(self, master, text="", width=10, height=2, borderwidth=1, relief="solid", bg="white", fg="black"):
+        self.master = master
+        self.label = tk.Label(master, text=text, borderwidth=borderwidth, relief=relief, width=width, height=height, bg=bg, fg=fg)
+        self.label.bind("<Double-Button-1>", self.edit_cell)
+        self.text_var = tk.StringVar()
+        self.entry = tk.Entry(master, textvariable=self.text_var, width=width, borderwidth=borderwidth, relief=relief, bg=bg, fg=fg)
+        self.entry.bind("<Return>", self.save_edit)
+
+    def grid(self, row, column, sticky='nsew'):
+        self.label.grid(row=row, column=column, sticky=sticky)
+        self.row = row
+        self.column = column
+
+    def set_text(self, text):
+        self.label.config(text=text)
+
+    def get_text(self):
+        return self.label.cget("text")
+
+    def set_bg(self, color):
+        self.label.config(bg=color)
+        self.entry.config(bg=color)
+
+    def set_fg(self, color):
+        self.label.config(fg=color)
+        self.entry.config(fg=color)
+
+    def edit_cell(self, event):
+        self.text_var.set(self.get_text())
+        self.entry.grid(row=self.row, column=self.column, sticky='nsew')
+        self.entry.focus_set()
+
+    def save_edit(self, event):
+        text = self.text_var.get()
+        if text.startswith("bg="):
+            color = text.split("=")[1]
+            self.set_bg(color)
+        elif text.startswith("txtcolor="):
+            color = text.split("=")[1]
+            self.set_fg(color)
+        else:
+            self.set_text(text)
+            # Adjust the size of the row/column if the text is too long
+            text_length = len(text)
+            if text_length > self.label.cget("width"):
+                self.label.config(width=text_length)
+                self.entry.config(width=text_length)
+                self.master.grid_columnconfigure(self.column, minsize=text_length * 10)  # Adjust column width
+                self.master.grid_rowconfigure(self.row, minsize=text_length * 2)  # Adjust row height
+        self.entry.grid_forget()
+
 class GUI:
     def __init__(self, windowSize=(800, 600)):
         self.windowSize = windowSize
@@ -39,18 +91,22 @@ class GUI:
         self.spreadsheet.create_window((0, 0), window=inner_frame, anchor='nw')
 
         # Create the grid of cells
+        self.cells = []
         for i in range(rows):
+            row_cells = []
             for j in range(columns):
                 if i == 0 and j > 0:
                     # First row, add column letters
-                    cell = tk.Label(inner_frame, text=chr(64+j), borderwidth=1, relief="solid", width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
+                    cell = Cell(inner_frame, text=chr(64+j), width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
                 elif j == 0 and i > 0:
                     # First column, add row numbers
-                    cell = tk.Label(inner_frame, text=str(i), borderwidth=1, relief="solid", width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
+                    cell = Cell(inner_frame, text=str(i), width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
                 else:
                     # Other cells
-                    cell = tk.Label(inner_frame, borderwidth=1, relief="solid", width=cellSize[0]//10, height=cellSize[1]//20)
+                    cell = Cell(inner_frame, width=cellSize[0]//10, height=cellSize[1]//20)
                 cell.grid(row=i, column=j, sticky='nsew')
+                row_cells.append(cell)
+            self.cells.append(row_cells)
 
         # Configure the scroll region
         inner_frame.update_idletasks()
