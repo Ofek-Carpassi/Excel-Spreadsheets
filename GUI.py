@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import colorchooser, simpledialog, font
 from file_manager import FileManager
 from tkinter import messagebox
 
@@ -15,6 +16,26 @@ class Cell(tk.Entry):
         self.delete(0, tk.END)
         self.insert(0, text)
 
+    def get_styles(self):
+        current_font = font.Font(font=self.cget("font"))
+        return {
+            "fg": self.cget("fg"),
+            "bg": self.cget("bg"),
+            "font_family": current_font.actual()["family"],
+            "font_size": current_font.actual()["size"],
+            "font_weight": current_font.actual()["weight"],
+            "justify": self.cget("justify")
+        }
+
+    def set_styles(self, styles):
+        self.config(fg=styles.get("fg", "black"))
+        self.config(bg=styles.get("bg", "white"))
+        font_family = styles.get("font_family", "TkDefaultFont")
+        font_size = styles.get("font_size", 10)
+        font_weight = styles.get("font_weight", "normal")
+        self.config(font=(font_family, font_size, font_weight))
+        self.config(justify=styles.get("justify", "left"))
+
 class HeaderCell(tk.Label):
     def __init__(self, parent, text="", width=6, height=1, **kwargs):
         super().__init__(parent, text=text, width=width, height=height, **kwargs)
@@ -26,10 +47,31 @@ class HeaderCell(tk.Label):
     def set_text(self, text):
         self.config(text=text)
 
+    def get_styles(self):
+        current_font = font.Font(font=self.cget("font"))
+        return {
+            "fg": self.cget("fg"),
+            "bg": self.cget("bg"),
+            "font_family": current_font.actual()["family"],
+            "font_size": current_font.actual()["size"],
+            "font_weight": current_font.actual()["weight"],
+            "justify": self.cget("anchor")  # HeaderCell uses anchor instead of justify
+        }
+
+    def set_styles(self, styles):
+        self.config(fg=styles.get("fg", "black"))
+        self.config(bg=styles.get("bg", "white"))
+        font_family = styles.get("font_family", "Arial")
+        font_size = styles.get("font_size", 12)
+        font_weight = styles.get("font_weight", "bold")
+        self.config(font=(font_family, font_size, font_weight))
+        self.config(anchor=styles.get("justify", "center"))  # HeaderCell uses anchor instead of justify
+
 class GUI:
     def __init__(self, windowSize=(800, 600)):
         self.windowSize = windowSize
         self.file_manager = FileManager(self)
+        self.current_cell = None
 
     def create_window(self):
         self.window = tk.Tk()
@@ -68,6 +110,7 @@ class GUI:
                     cell = HeaderCell(inner_frame, text=str(i), width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
                 else:
                     cell = Cell(inner_frame, width=cellSize[0]//10, height=cellSize[1]//20)
+                    cell.bind("<Button-1>", self.set_current_cell)
                 cell.grid(row=i, column=j, sticky='nsew')
                 row_cells.append(cell)
             self.cells.append(row_cells)
@@ -86,7 +129,81 @@ class GUI:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing)
         menu_bar.add_cascade(label="File", menu=file_menu)
+
+        style_menu = tk.Menu(menu_bar, tearoff=0)
+        style_menu.add_command(label="Change Text Color", command=self.change_text_color)
+        style_menu.add_command(label="Change Background Color", command=self.change_bg_color)
+        style_menu.add_command(label="Change Font", command=self.change_font)
+        style_menu.add_command(label="Change Font Size", command=self.change_font_size)
+        style_menu.add_command(label="Bold Text", command=self.toggle_bold)
+        style_menu.add_command(label="Align Left", command=lambda: self.change_alignment("left"))
+        style_menu.add_command(label="Align Center", command=lambda: self.change_alignment("center"))
+        style_menu.add_command(label="Align Right", command=lambda: self.change_alignment("right"))
+        menu_bar.add_cascade(label="Style", menu=style_menu)
+
         self.window.config(menu=menu_bar)
+
+    def set_current_cell(self, event):
+        self.current_cell = event.widget
+
+    def change_text_color(self):
+        if self.current_cell:
+            color = colorchooser.askcolor()[1]
+            if color:
+                self.current_cell.config(fg=color)
+
+    def change_bg_color(self):
+        if self.current_cell:
+            color = colorchooser.askcolor()[1]
+            if color:
+                self.current_cell.config(bg=color)
+
+    def change_font(self):
+        if self.current_cell:
+            font_family = simpledialog.askstring("Font", "Enter font family:")
+            if font_family:
+                current_font = font.Font(font=self.current_cell.cget("font"))
+                current_font.config(family=font_family)
+                self.current_cell.config(font=current_font)
+
+    def change_font_size(self):
+        if self.current_cell:
+            font_size = simpledialog.askinteger("Font Size", "Enter font size:")
+            if font_size:
+                current_font = font.Font(font=self.current_cell.cget("font"))
+                current_font.config(size=font_size)
+                self.current_cell.config(font=current_font)
+
+    def toggle_bold(self):
+        if self.current_cell:
+            current_font = font.Font(font=self.current_cell.cget("font"))
+            weight = "bold" if current_font.actual()["weight"] == "normal" else "normal"
+            current_font.config(weight=weight)
+            self.current_cell.config(font=current_font)
+
+    def change_alignment(self, alignment):
+        if self.current_cell:
+            justify = {"left": "left", "center": "center", "right": "right"}[alignment]
+            self.current_cell.config(justify=justify)
+
+    def get_spreadsheet_data_with_styles(self):
+        data = []
+        for row in self.cells:
+            row_data = []
+            for cell in row:
+                cell_data = {
+                    "text": cell.get_text(),
+                    "styles": cell.get_styles()
+                }
+                row_data.append(cell_data)
+            data.append(row_data)
+        return data
+
+    def load_spreadsheet_data_with_styles(self, data):
+        for i, row in enumerate(data):
+            for j, cell_data in enumerate(row):
+                self.cells[i][j].set_text(cell_data["text"])
+                self.cells[i][j].set_styles(cell_data["styles"])
 
     def get_spreadsheet_data(self):
         data = []
@@ -106,6 +223,7 @@ class GUI:
                 if keep_headers and (i == 0 or j == 0):
                     continue
                 cell.set_text("")
+                cell.set_styles({"fg": "black", "bg": "white", "font_family": "TkDefaultFont", "font_size": 10, "font_weight": "normal", "justify": "left"})
 
     def on_closing(self):
         if messagebox.askyesno("Exit", "Do you want to save the current file before exiting?"):

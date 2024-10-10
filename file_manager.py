@@ -1,5 +1,6 @@
 import json
 from tkinter import filedialog, messagebox
+import csv
 
 class FileManager:
     def __init__(self, gui):
@@ -16,7 +17,7 @@ class FileManager:
         if not self.current_file:
             self.save_as()
         else:
-            data = self.gui.get_spreadsheet_data()
+            data = self.gui.get_spreadsheet_data_with_styles()
             with open(self.current_file, 'w') as file:
                 json.dump(data, file)
 
@@ -29,7 +30,7 @@ class FileManager:
             with open(file_path, 'r') as file:
                 data = json.load(file)
                 self.gui.clear_spreadsheet(keep_headers=True)
-                self.gui.load_spreadsheet_data(data)
+                self.gui.load_spreadsheet_data_with_styles(data)
 
     def create_new_file(self):
         if messagebox.askyesno("Create New File", "Do you want to save the current file before creating a new one?"):
@@ -41,6 +42,7 @@ class FileManager:
         file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if file_path:
             data = self.gui.get_spreadsheet_data()
-            with open(file_path, 'w') as file:
+            with open(file_path, 'w', newline='') as file:
+                writer = csv.writer(file)
                 for row in data:
-                    file.write(",".join(row) + "\n")
+                    writer.writerow(row)
