@@ -9,6 +9,25 @@ class Cell(tk.Entry):
         self.insert(0, text)
         self.config(relief="solid", bd=1)  # Bolder outline
 
+    def cell_click(self, event):
+        # Check if Shift or Ctrl is pressed
+        if not (event.state & 0x0001 or event.state & 0x0004):  # Shift is 0x0001, Ctrl is 0x0004
+            return  # Don't select if neither is pressed
+
+        cell = event.widget
+
+        # Toggle selection with Ctrl, or extend selection with Shift
+        if event.state & 0x0004:  # Ctrl key pressed
+            if cell in self.selected_cells:
+                self.selected_cells.remove(cell)
+                cell.config(bg="white")
+            else:
+                self.selected_cells.append(cell)
+                cell.config(bg="lightblue")
+        elif event.state & 0x0001:  # Shift key pressed
+            self.selected_cells.append(cell)
+            cell.config(bg="lightblue")
+
     def get_text(self):
         return self.get()
 
@@ -68,10 +87,88 @@ class HeaderCell(tk.Label):
         self.config(anchor=styles.get("justify", "center"))  # HeaderCell uses anchor instead of justify
 
 class GUI:
-    def __init__(self, windowSize=(800, 600)):
+    def __init__(self, windowSize=(850, 605)):
         self.windowSize = windowSize
         self.file_manager = FileManager(self)
         self.current_cell = None
+        self.selected_cells = []
+        self.merged_cells = {}  # Track merged cells
+
+    def set_current_cell(self, event):
+        if not (event.state & 0x0001 or event.state & 0x0004):  # Shift is 0x0001, Ctrl is 0x0004
+            return  # Don't select if neither is pressed
+    
+        if event.state & 0x0001:  # Shift is held
+            if event.widget not in self.selected_cells:
+                self.selected_cells.append(event.widget)
+                event.widget.config(bg="lightblue")
+        elif event.state & 0x0004:  # Ctrl is held
+            if event.widget in self.selected_cells:
+                self.selected_cells.remove(event.widget)
+                event.widget.config(bg="white")
+            else:
+                self.selected_cells.append(event.widget)
+                event.widget.config(bg="lightblue")
+        
+    def merge_cells(self):
+        if not self.selected_cells:
+            messagebox.showerror("Error", "No cells selected.")
+            return
+    
+        # Determine the boundaries of the selected cells considering merged spans
+        rows = [cell.grid_info()["row"] for cell in self.selected_cells]
+        columns = [cell.grid_info()["column"] for cell in self.selected_cells]
+        min_row, max_row = min(rows), max(rows)
+        min_column, max_column = min(columns), max(columns)
+    
+        # Store original styles and positions
+        original_styles = {cell: cell.get_styles() for cell in self.selected_cells}
+        original_positions = {cell: (cell.grid_info()["row"], cell.grid_info()["column"]) for cell in self.selected_cells}
+        self.merged_cells[(min_row, min_column)] = {
+            "cells": self.selected_cells,
+            "styles": original_styles,
+            "positions": original_positions
+        }
+    
+        for cell in self.selected_cells:
+            cell.grid_forget()
+    
+        first_cell = self.selected_cells[0]
+        first_cell.grid(row=min_row, column=min_column, rowspan=max_row-min_row+1, columnspan=max_column-min_column+1, sticky='nsew')
+        first_cell.set_text(first_cell.get_text())
+    
+        for cell in self.selected_cells:
+            cell.config(bg="white")
+        self.selected_cells = []
+
+    def unmerge_cells(self):
+        if not self.selected_cells:
+            messagebox.showerror("Error", "No cells selected.")
+            return
+    
+        # Get the grid information of the first selected cell (top-left of merged area)
+        cell_info = self.selected_cells[0].grid_info()
+        min_row, min_column = cell_info["row"], cell_info["column"]
+    
+        # Check if the top-left cell is part of a merged cell
+        if (min_row, min_column) not in self.merged_cells:
+            messagebox.showerror("Error", "Selected cell is not part of a merged cell.")
+            return
+    
+        # Retrieve merged cell data
+        merged_info = self.merged_cells.pop((min_row, min_column))
+        cells = merged_info["cells"]
+        original_styles = merged_info["styles"]
+        original_positions = merged_info["positions"]
+    
+        for cell in cells:
+            row, column = original_positions[cell]
+            cell.grid(row=row, column=column, rowspan=1, columnspan=1, sticky='nsew')
+            cell.set_styles(original_styles[cell])
+            cell.config(bg="white")
+    
+        # Clear the selected cells after unmerging
+        self.selected_cells = []
 
     def create_window(self):
         self.window = tk.Tk()
@@ -79,23 +176,12 @@ class GUI:
         self.window.geometry(f"{self.windowSize[0]}x{self.windowSize[1]}")
         self.window.protocol("WM_DELETE_WINDOW", self.on_closing)  # Intercept the window close event
 
-    def create_spreadsheet(self, cellSize=(90, 30), rows=25, columns=9):
+    def create_spreadsheet(self, cellSize=(90, 30), rows=26, columns=9):
         frame = tk.Frame(self.window)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        if rows > 30:
-            v_scroll = tk.Scrollbar(frame, orient=tk.VERTICAL)
-            v_scroll.pack(side=tk.LEFT, fill=tk.Y)
-
-        h_scroll = tk.Scrollbar(frame, orient=tk.HORIZONTAL)
-        h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
-
-        self.spreadsheet = tk.Canvas(frame, yscrollcommand=v_scroll.set if rows > 30 else None, xscrollcommand=h_scroll.set)
+        self.spreadsheet = tk.Canvas(frame)
         self.spreadsheet.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        if rows > 30:
-            v_scroll.config(command=self.spreadsheet.yview)
-        h_scroll.config(command=self.spreadsheet.xview)
 
         inner_frame = tk.Frame(self.spreadsheet)
         self.spreadsheet.create_window((0, 0), window=inner_frame, anchor='nw')
@@ -104,7 +190,9 @@ class GUI:
         for i in range(rows):
             row_cells = []
             for j in range(columns):
-                if i == 0 and j > 0:
+                if i == 0 and j == 0:
+                    cell = tk.Label(inner_frame, text="", width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="white", relief="solid", bd=1)
+                elif i == 0 and j > 0:
                     cell = HeaderCell(inner_frame, text=chr(64+j), width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
                 elif j == 0 and i > 0:
                     cell = HeaderCell(inner_frame, text=str(i), width=cellSize[0]//10, height=cellSize[1]//20, bg="white", fg="black")
@@ -119,8 +207,9 @@ class GUI:
         self.spreadsheet.config(scrollregion=self.spreadsheet.bbox(tk.ALL))
 
     def create_menu(self):
-        menu_bar = tk.Menu(self.window)
-        file_menu = tk.Menu(menu_bar, tearoff=0)
+        menu_bar = tk.Menu(self.window, bg="#222222", fg="white", activebackground="#555555", activeforeground="white", font=("Arial", 12, "bold"), bd=2)
+        
+        file_menu = tk.Menu(menu_bar, tearoff=0, bg="#222222", fg="white", activebackground="#555555", activeforeground="white", font=("Arial", 12, "bold"), bd=2)
         file_menu.add_command(label="Save as", command=self.file_manager.save_as)
         file_menu.add_command(label="Save", command=self.file_manager.save)
         file_menu.add_command(label="Open", command=self.file_manager.open_file)
@@ -129,8 +218,8 @@ class GUI:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.on_closing)
         menu_bar.add_cascade(label="File", menu=file_menu)
-
-        style_menu = tk.Menu(menu_bar, tearoff=0)
+    
+        style_menu = tk.Menu(menu_bar, tearoff=0, bg="#222222", fg="white", activebackground="#555555", activeforeground="white", font=("Arial", 12, "bold"), bd=2)
         style_menu.add_command(label="Change Text Color", command=self.change_text_color)
         style_menu.add_command(label="Change Background Color", command=self.change_bg_color)
         style_menu.add_command(label="Change Font", command=self.change_font)
@@ -140,11 +229,13 @@ class GUI:
         style_menu.add_command(label="Align Center", command=lambda: self.change_alignment("center"))
         style_menu.add_command(label="Align Right", command=lambda: self.change_alignment("right"))
         menu_bar.add_cascade(label="Style", menu=style_menu)
-
+    
+        merge_menu = tk.Menu(menu_bar, tearoff=0, bg="#222222", fg="white", activebackground="#555555", activeforeground="white", font=("Arial", 12, "bold"), bd=2)
+        merge_menu.add_command(label="Merge Cells", command=self.merge_cells)  # New menu option
+        merge_menu.add_command(label="Unmerge Cells", command=self.unmerge_cells)  # New menu option
+        menu_bar.add_cascade(label="Merge", menu=merge_menu)  # Corrected line to add the Merge menu
+    
         self.window.config(menu=menu_bar)
-
-    def set_current_cell(self, event):
-        self.current_cell = event.widget
 
     def change_text_color(self):
         if self.current_cell:
@@ -202,8 +293,11 @@ class GUI:
     def load_spreadsheet_data_with_styles(self, data):
         for i, row in enumerate(data):
             for j, cell_data in enumerate(row):
-                self.cells[i][j].set_text(cell_data["text"])
-                self.cells[i][j].set_styles(cell_data["styles"])
+                try:
+                    self.cells[i][j].set_text(cell_data["text"])
+                    self.cells[i][j].set_styles(cell_data["styles"])
+                except:
+                    pass
 
     def get_spreadsheet_data(self):
         data = []
